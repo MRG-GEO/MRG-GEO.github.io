@@ -1,628 +1,513 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Project Timeline with Accordion and View Modes</title>
-<style>
-  body {
-    font-family: sans-serif;
-    margin: 40px;
-  }
-
-  .task-bar {
-    position: absolute;
-    height: 24px;
-    border-radius: 4px;
-    background-color: steelblue;
-    cursor: move;
-    transition: background-color 0.2s;
-  }
-
-  .task-bar:hover {
-    background-color: dodgerblue;
-  }
-
-  .handle {
-  position: absolute;
-  top: 0;
-  width: 8px;
-  height: 100%;
-  cursor: ew-resize;
-}
-
-.handle.left { left: -4px; border-radius: 4px 0 0 4px; }
-.handle.right { right: -4px; border-radius: 0 4px 4px 0; }
-
-  .task-label {
-    position: absolute;
-    left: 0;
-    width: 200px;
-    height: 24px;
-    font-size: 12px;
-    color: #000000;
-    padding-left: 4px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .date-tick {
-    position: absolute;
-    top: 30px;
-    font-size: 10px;
-    color: #666;
-    
-  }
-  .date-header {
-    position: absolute;
-    top: 0;
-    font-size: 14px;
-    font-weight: bold;
-    color: #000;
-    white-space: nowrap;
-  }
-  #date-axis {
-    position: relative;
-    height: 60px;
-    border-bottom: 1px solid #aaa;
-    margin-left: 10px;
-    margin-bottom: 10px;
-  }
-  #timeline-container {
-    position: relative;
-  }
-  #tooltip {
-    position: fixed;
-    padding: 8px 12px;
-    background: #222;
-    color: #fff;
-    border-radius: 6px;
-    pointer-events: none;
-    font-size: 12px;
-    opacity: 0;
-    transition: opacity 0.15s;
-    z-index: 1000;
-  }
-  .accordion-header {
-    font-weight: bold;
-    margin-top: 10px;
-    margin-bottom: 5px;
-    cursor: pointer;
-  }
-  #view-switcher {
-    margin-bottom: 20px;
-  }
-</style>
-<script src="https://js.arcgis.com/4.31/"></script>
-</head>
 <body>
-  <select id="view-switcher">
-    <option value="week" selected>Week</option>
-    <option value="month">Month</option>
-    <option value="year">Year</option>
-    <option value="extended">Extended</option>
-  </select>
-  <label>
-    <input type="checkbox" id="sortByPriorityToggle">
-    Sort tasks by priority
-  </label>
+    <button id="add-project-btn"
+        style="margin: 4px; padding: 6px 12px; background:#28a745; color:white;
+            border:1px solid #1e7e34; border-radius:4px; cursor:pointer;">
+        + Add New Project
+    </button>
 
-  <div id="date-line"></div>
-  <div id="date-marker"></div>
-  <div id="date-axis"></div>
-  <div id="timeline-container"></div>
-  <div id="tooltip"></div>
+    <div id="new-project-form" 
+        style="display:none; margin-top:10px; padding:10px; border:1px solid #ccc; border-radius:6px;">
+    </div>
+    <div id="button-bar" style="margin-bottom:10px;"></div>
 
-<script>
-require(["esri/layers/FeatureLayer"], function(FeatureLayer) {
-  const timelineContainer = document.getElementById("timeline-container");
-  const dateAxis = document.getElementById("date-axis");
-  const tooltip = document.getElementById("tooltip");
-  const viewSwitcher = document.getElementById("view-switcher");
+    <div id="table-container"></div>
 
-  const labelWidth = 200;
-  const taskHeight = 30;
-  const taskSpacing = 6;
+    <script src="https://js.arcgis.com/4.31/"></script>
+    <script>
+        require(["esri/layers/FeatureLayer"], function (FeatureLayer) {
+            const projectLayer = new FeatureLayer({
+                url: "https://geo-x.apca2.gc.ca/arcserver/rest/services/Hosted/MRG_Geomatics/FeatureServer/1"
+            });
 
-  const priorityRank = { high: 1, normal: 2, low: 3 };
+            const subTaskLayer = new FeatureLayer({
+                url: "https://geo-x.apca2.gc.ca/arcserver/rest/services/Hosted/MRG_Geomatics/FeatureServer/2"
+            });
 
-  const projectLayer = new FeatureLayer({
-    url: "https://geo-x.apca2.gc.ca/arcserver/rest/services/Hosted/MRG_Geomatics/FeatureServer/1"
-  });
-
-  const subtaskLayer = new FeatureLayer({
-    url: "https://geo-x.apca2.gc.ca/arcserver/rest/services/Hosted/MRG_Geomatics/FeatureServer/2"
-  });
-
-  // Load projects
-  projectLayer.queryFeatures({
-    where: "1=1",
-    outFields: ["objectid", "title", "start_date", "due_date", "priority"],
-    returnGeometry: false
-  }).then(function(results) {
-    results.features.forEach(feature => {
-      tasks.push({
-        id: feature.attributes.objectid,
-        title: feature.attributes.title,     // adjust field names
-        start: new Date(feature.attributes.start_date),
-        end: new Date(feature.attributes.due_date),
-        layer: "project"                     // mark source layer
-      });
-      console.log("feature id:", id);
-    });
-
-    // Load subtasks *after* projects
-    return subtaskLayer.queryFeatures({
-        where: "1=1",
-        outFields: ["objectid", "title", "start_date", "due_date"],
-        returnGeometry: false
-    });
-
-  }).then(function(results) {
-    results.features.forEach(feature => {
-      tasks.push({
-          id: "subTask_" + feature.attributes.objectid,
-          title: feature.attributes.title,
-          start: new Date(feature.attributes.start_date),
-          end: new Date(feature.attributes.due_date),
-          layer: "subtask"                     // mark source layer
-      });
-    });
-
-    console.log("All tasks loaded:", tasks);
-    renderTimeline(tasks); // ✅ Now both types render together
-  });
-    
-  function renderTimeline(tasks, minDate, maxDate, viewMode, sortByPriority) {
-    const msPerDay = 24 * 60 * 60 * 1000;
-    const msPerMonth = msPerDay * 30;
-    const msPerYear = msPerDay * 365;
-
-    let msUnit, pxPerUnit;
-    let earliestYear = new Date().getFullYear(); // default
-    let latestYear = earliestYear;
-
-    timelineContainer.innerHTML = "";
-    dateAxis.innerHTML = "";
-
-    const now = new Date();
-        
-
-    if (viewMode === "week") {
-      const dayOfWeek = now.getDay(); // 0 = Sunday
-      minDate = new Date(now);
-      minDate.setDate(now.getDate() - dayOfWeek);
-      minDate.setHours(0, 0, 0, 0);
-
-      maxDate = new Date(minDate);
-      maxDate.setDate(minDate.getDate() + 6);
-
-      msUnit = msPerDay;
-      pxPerUnit = 300;
-
-      earliestYear = minDate.getFullYear();
-      latestYear = maxDate.getFullYear();
-
-    } else if (viewMode === "month") {
-      minDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      maxDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-      msUnit = msPerDay;
-      pxPerUnit = 80;
-
-      earliestYear = minDate.getFullYear();
-      latestYear = maxDate.getFullYear();
-
-        
-    } else if (viewMode === "year") {
-      minDate = new Date(now.getFullYear(), 0, 1);
-      maxDate = new Date(now.getFullYear(), 11, 31);
-
-      msUnit = msPerDay;
-      pxPerUnit = 5;
-
-      earliestYear = minDate.getFullYear();
-      latestYear = maxDate.getFullYear();
-
-      timelineContainer.style.minWidth =
-      ((maxDate - minDate) / msPerDay) * pxPerUnit + labelWidth + "px";
-
-      let cursor = new Date(minDate);
-      while (cursor <= maxDate) {
-        const daysSinceStart = (cursor - minDate) / msPerDay;
-        const left = labelWidth + daysSinceStart * pxPerUnit;
-
-        const tick = document.createElement("div");
-        tick.className = "date-tick";
-        tick.style.left = `${left}px`;
-        tick.textContent = cursor.toLocaleDateString("en-US", { month: "short" });
-        dateAxis.appendChild(tick);
-
-        cursor.setMonth(cursor.getMonth() + 1);
-      }
-
-    } else if (viewMode === "extended") {
-      let earliestYear, latestYear;
-
-      if (tasks.length > 0) {
-        earliestYear = Math.min(...tasks.map(t => t.start.getFullYear()));
-        latestYear = Math.max(...tasks.map(t => t.end.getFullYear()));
-      } else {
-        const thisYear = now.getFullYear();
-        earliestYear = thisYear;
-        latestYear = thisYear;
-      }
-
-      minDate = new Date(earliestYear, 0, 1);
-      maxDate = new Date(latestYear, 11, 31);
-
-      msUnit = msPerYear;
-      pxPerUnit = 200;
-    }
-
-    // ✅ Now safe to calculate clampedToday
-    const clampedToday = now < minDate ? minDate : now > maxDate ? maxDate : now;
-    const offset = (clampedToday - minDate) / msUnit;
-    const leftPos = labelWidth + offset * pxPerUnit;
-
-    const dateLine = document.getElementById("date-line");
-    dateLine.className = "date-line";
-    dateLine.style.position = "absolute";
-    dateLine.style.marginTop = "60px";
-    dateLine.style.left = leftPos + "px";
-    dateLine.style.backgroundColor = "black";
-    dateLine.style.height = "100%";
-    dateLine.style.width = "1px";
-    dateLine.style.zIndex = "100";
-
-    const dateMarker = document.getElementById("date-marker");
-    dateMarker.className = "date-line";
-    dateMarker.style.position = "absolute";
-    dateMarker.style.marginTop = "60px";
-    // Center marker on the line
-    dateMarker.style.left = (leftPos - 3) + "px"; 
-    dateMarker.style.backgroundColor = "black";
-    dateMarker.style.height = "8px";
-    dateMarker.style.borderRadius = "50%"; // makes it round
-    dateMarker.style.width = "8px";
-    dateMarker.style.zIndex = "101";
-    
-
-    // Existing logic for day and year views
-    let cursor = new Date(minDate);
-
-    while (cursor <= maxDate) {
-      const offset = Math.floor((cursor - minDate) / msUnit);
-      const left = labelWidth + offset * pxPerUnit;
-
-      let tickText = "";
-      let headerText = "";
-
-      if (viewMode === "week") {
-        tickText = cursor.toLocaleDateString("en-US", { weekday: "short" });
-        const header = document.createElement("div");
-        header.className = "date-header";
-        header.style.left = `${labelWidth + (pxPerUnit * 3.5)}px`; // roughly centered over 7 days
-        header.textContent = `Week of ${minDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
-        dateAxis.appendChild(header);
-
-      } else if (viewMode === "month") {
-        tickText = cursor.toLocaleDateString("en-US", { day: "2-digit" });
-        const monthName = minDate.toLocaleDateString("en-US", { month: "long" });
-        const yearNum = minDate.getFullYear();
-        const header = document.createElement("div");
-        header.className = "date-header";
-        header.style.left = `${labelWidth + ((maxDate - minDate) / msPerDay / 2) * pxPerUnit}px`; // center of month
-        header.textContent = `${monthName} ${yearNum}`;
-        dateAxis.appendChild(header);
-          
-      } else if (viewMode === "extended") {
-        tickText = cursor.getFullYear();
-      }
-
-      const tick = document.createElement("div");
-      tick.className = "date-tick";
-      tick.style.left = `${left}px`;
-      tick.textContent = tickText;
-      dateAxis.appendChild(tick);
-
-      if (viewMode === "week" || viewMode === "month") {
-          cursor.setDate(cursor.getDate() + 1);
-      } else if (viewMode === "year") {
-          cursor.setMonth(cursor.getMonth() + 1);
-      } else {
-          cursor.setFullYear(cursor.getFullYear() + 1);
-      }
-        
-    }
-
-    const groupedTasks = {};
-
-    tasks.forEach(task => {
-        const group = task.program || "Uncategorized";
-        if (!groupedTasks[group]) groupedTasks[group] = [];
-        groupedTasks[group].push(task);
-    });
-
-    let globalTop = 0;
-
-    Object.entries(groupedTasks).forEach(([groupName, groupTasks]) => {
-      if (sortByPriority) {
-        groupTasks.sort((a, b) =>
-          (priorityRank[a.priority.toLowerCase()] || 99) -
-          (priorityRank[b.priority.toLowerCase()] || 99)
-        );
-      }
-
-      const header = document.createElement("div");
-      header.className = "accordion-header";
-      header.style.position = "absolute";
-      header.style.top = globalTop + "px";
-      header.textContent = `\u25BC ${groupName}`;
-      timelineContainer.appendChild(header);
-      globalTop += 30; // Space for header
-
-      const groupDiv = document.createElement("div");
-      groupDiv.className = "accordion-content";
-      groupDiv.style.position = "absolute";
-      groupDiv.style.top = (globalTop + 30) + "px";
-      groupDiv.style.display = "block";
-      timelineContainer.appendChild(groupDiv);
-
-      let localTop = 0;
-
-      groupTasks.forEach((task) => {
-        const featureId = task.id;
-        const clampedStart = task.start < minDate ? minDate : task.start;
-        const clampedEnd = task.end > maxDate ? maxDate : task.end;
-
-        const offset = Math.floor((clampedStart - minDate) / msUnit);
-        const duration = Math.ceil((clampedEnd - clampedStart) / msUnit) + 1;
-
-        const bar = document.createElement("div");
-        bar.className = "task-bar";
-        bar.style.left = (labelWidth + offset * pxPerUnit) + "px";
-        bar.style.top = localTop + "px";
-        bar.style.width = (duration * pxPerUnit) + "px";
-        bar.style.position = "absolute";
-
-        // Add resize handles
-        const leftHandle = document.createElement("div");
-        leftHandle.className = "handle left";
-        const rightHandle = document.createElement("div");
-        rightHandle.className = "handle right";
-        bar.appendChild(leftHandle);
-        bar.appendChild(rightHandle);
-
-        // Color by priority
-        const p = task.priority.toLowerCase();
-        bar.style.backgroundColor = p === "high" ? "#d9534f" : p === "low" ? "#5bc0de" : "steelblue";
-
-        // Tooltip
-        bar.addEventListener("mousemove", (e) => {
-          tooltip.style.opacity = 1;
-          tooltip.style.left = e.pageX + 15 + "px";
-          tooltip.style.top = e.pageY + 15 + "px";
-          tooltip.innerHTML = `
-          <strong>${task.title}</strong><br>
-          ObjectID: ${task.id}<br>
-          Start: ${task.start.toLocaleDateString()}<br>
-          End: ${task.end.toLocaleDateString()}<br>
-          Priority: ${task.priority}<br>
-          Status: ${task.status}
-          `;
-        });
-        bar.addEventListener("mouseleave", () => {
-          tooltip.style.opacity = 0;
-        });
-
-        // Label
-        const label = document.createElement("div");
-        label.className = "task-label";
-        label.style.top = localTop + "px";
-        label.textContent = task.title;
-
-        groupDiv.appendChild(bar);
-        groupDiv.appendChild(label);
-
-        localTop += taskHeight + taskSpacing;
-
-        // --------------------
-        // Drag/Resize behavior
-        // --------------------
-        let dragging = null;
-
-        bar.addEventListener("mousedown", (e) => {
-          if (e.target.classList.contains("handle")) {
-            // Resizing
-            dragging = {
-              type: "resize",
-              side: e.target.classList.contains("left") ? "left" : "right",
-              startX: e.clientX,
-              startWidth: bar.offsetWidth,
-              startLeft: bar.offsetLeft
+            const fieldMap = {
+                "Title": "title",
+                "Priority": "priority",
+                "Size": "size",
+                "Start Date": "start_date",
+                "Due Date": "due_date",
+                "Description": "description",
+                "Project Type": "project_type",
+                "Status": "status",
+                "Folder Path": "folder_path",
+                "Progress": "progress",
+                "Last Updated": "last_updated",
             };
-          } else {
-            // Moving
-            dragging = {
-              type: "move",
-              startX: e.clientX,
-              startLeft: bar.offsetLeft
-            };
-          }
 
-          function onMouseMove(ev) {
-            const dx = ev.clientX - dragging.startX;
-            if (dragging.type === "move") {
-                bar.style.left = dragging.startLeft + dx + "px";
-            } else if (dragging.type === "resize") {
-              if (dragging.side === "left") {
-                let newLeft = dragging.startLeft + dx;
-                let newWidth = dragging.startWidth - dx;
-                if (newWidth > 20) {
-                  bar.style.left = newLeft + "px";
-                  bar.style.width = newWidth + "px";
-                }
-              } else {
-                let newWidth = dragging.startWidth + dx;
-                if (newWidth > 20) {
-                    bar.style.width = newWidth + "px";
-                }
-              }
+            const displayOrder = Object.keys(fieldMap);
+
+            const programButtons = [
+                "All",
+                "ACS",
+                "External Relations",
+                "Geomatics Admin",
+                "HOU",
+                "Law Enforcement",
+                "Resource Conservation",
+                "Visitor Experience",
+                "HES",
+                "Assets",
+                "National Office",
+                "External Requests"
+            ];
+
+            const resourceConservationPrograms = [
+                "CRM", "EI Monitoring", "Impact Assessment", "Ecosystem Science", "Wildlife", "Veg", "Geomatics Admin"
+            ];
+
+            function formatDate(value) {
+                if (!value) return "";
+                const date = new Date(value);
+                if (isNaN(date)) return value;
+                const dd = String(date.getDate()).padStart(2, "0");
+                const mm = String(date.getMonth() + 1).padStart(2, "0");
+                const yyyy = date.getFullYear();
+                return `${dd}-${mm}-${yyyy}`;
             }
-          }
 
-          function onMouseUp() {
-            console.log("onMouseUp detected")
-            document.removeEventListener("mousemove", onMouseMove);
-            document.removeEventListener("mouseup", onMouseUp);
+            function parseDate(str) {
+                const [dd, mm, yyyy] = str.split("-");
+                if (!dd || !mm || !yyyy) return null;
+                return new Date(`${yyyy}-${mm}-${dd}`);
+            }
 
-            // 🔹 Snap back to dates when done
-            const leftPx = parseInt(bar.style.left) - labelWidth;
-            const widthPx = parseInt(bar.style.width);
+            // --- REBUILD ROWS FUNCTION (used by all tables) ---
+            function rebuildTableRows(table, rows) {
+                Array.from(table.querySelectorAll("tr:not(:first-child)")).forEach(r => r.remove());
 
-            const newStart = new Date(minDate.getTime() + Math.round(leftPx / pxPerUnit) * msUnit);
-            const newEnd = new Date(newStart.getTime() + Math.round(widthPx / pxPerUnit) * msUnit);
+                rows.forEach(feature => {
+                    const row = document.createElement("tr");
 
-            task.start = newStart;
-            task.end = newEnd;
+                    // --- ARROW CELL ---
+                    const arrowTd = document.createElement("td");
+                    arrowTd.classList.add("arrow-cell");
+                    arrowTd.style.width = "28px";
+                    arrowTd.style.textAlign = "center";
+                    arrowTd.style.cursor = "pointer";
+                    arrowTd.style.border = "1px solid #ddd";
+                    arrowTd.innerHTML = "&#9654;"; // ► collapsed arrow
 
-            const updates = [{
-              attributes: {
-                id: featureId,           // required
-                start_date: task.start.getTime(),         
-                due_date: task.end.getTime()    
-              }
-            }];
-            console.log("id", featureId);
+                    arrowTd.addEventListener("click", (event) => {
+                        event.stopPropagation(); // prevent row click editing a cell
+                        toggleSubtaskRow(table, row, feature);
+                    });
 
-            const targetLayer = (task.layer === "project") ? projectLayer : subtaskLayer;
-            console.log("targetLayer", targetLayer);
-              
+                    row.appendChild(arrowTd); // important: FIRST cell
 
-            targetLayer.applyEdits({ updateFeatures: updates })
-            .then(res => {
-              console.log("Update response:", res);
-              if (res.updateFeatureResults[0].error) {
-                console.error("Update failed:", res.updateFeatureResults[0].error);
-              }
-            })
-            .catch(err => console.error("Error updating:", err));
-          }
+                    
+                    displayOrder.forEach(label => {
+                        const fieldName = fieldMap[label];
+                        const td = document.createElement("td");
+                        let val = feature.attributes[fieldName];
 
-          document.addEventListener("mousemove", onMouseMove);
-          document.addEventListener("mouseup", onMouseUp);
+                        // === PROGRESS BAR ===
+                        if (label === "Progress") {
+                            const percent = Number(val) || 0;
+
+                            // Choose color based on percent
+                            let color;
+                            if (percent >= 75) color = "#4caf50"; // green
+                            else if (percent >= 50) color = "#ffc107"; // yellow
+                            else color = "#ff9800"; // orange
+
+                            td.innerHTML = `
+                                <div style="background:#eee;width:100%;height:18px;border-radius:3px;position:relative;">
+                                <div style="background:${color};width:${percent}%;height:100%;border-radius:3px;"></div>
+                                <div style="position:absolute;top:0;left:0;width:100%;height:100%;text-align:center;
+                                    line-height:18px;font-size:12px;font-weight:bold;color:#000;">
+                                    ${percent}%
+                                </div>
+                                </div>`;
+                        } else {
+                        if (fieldName.includes("date")) val = formatDate(val);
+                        td.textContent = val ?? "";
+
+                        // === MAKE CELL EDITABLE ===
+                        td.contentEditable = true;
+                        td.addEventListener("blur", async () => {
+                            let newValue = td.textContent.trim();
+                            const objectId = feature.attributes[projectLayer.objectIdField];
+
+                            if (fieldName.includes("date")) {
+                            const parsed = parseDate(newValue);
+                            if (parsed) newValue = parsed.getTime();
+                            }
+
+                            if (newValue == feature.attributes[fieldName]) return;
+                            feature.attributes[fieldName] = newValue;
+
+                            try {
+                            const result = await projectLayer.applyEdits({ updateFeatures: [feature] });
+                            if (result.updateFeatureResults[0].error) {
+                                td.style.backgroundColor = "#fdd";
+                            } else {
+                                td.style.backgroundColor = "#dfd";
+                                setTimeout(() => (td.style.backgroundColor = ""), 800);
+                            }
+                            } catch {
+                            td.style.backgroundColor = "#fdd";
+                            }
+                        });
+                        }
+
+                        td.style.border = "1px solid #ddd";
+                        td.style.padding = "6px";
+                        td.style.overflow = "hidden";
+                        td.style.textOverflow = "ellipsis";
+                        td.style.whiteSpace = "nowrap";
+                        row.appendChild(td);
+                    });
+
+                    table.appendChild(row);
+                });
+            }
+
+            // --- MAIN QUERY ---
+            projectLayer.queryFeatures({
+                where: "1=1",
+                outFields: ["*"],
+                returnGeometry: false
+            }).then(results => {
+                const container = document.getElementById("table-container");
+                const buttonBar = document.getElementById("button-bar");
+                const allFeatures = results.features;
+
+                // === GROUP FEATURES BY PROGRAM ===
+                const programGroups = {
+                    "All": allFeatures,
+                    "ACS": allFeatures.filter(f => f.attributes.program_function === "ACS"),
+                    "Assets": allFeatures.filter(f => f.attributes.program_function === "Assets"),
+                    "External Relations": allFeatures.filter(f => f.attributes.program_function === "External Relations"),
+                    "Geomatics Admin": allFeatures.filter(f => f.attributes.program_function === "Geomatics Admin"),
+                    "HES": allFeatures.filter(f => f.attributes.program_function === "HES"),
+                    "HOU": allFeatures.filter(f => f.attributes.program_function === "HOU"),
+                    "Resource Conservation": allFeatures.filter(f => resourceConservationPrograms.includes(f.attributes.program_function)),
+                    "Visitor Experience": allFeatures.filter(f => f.attributes.program_function === "Visitor Experience"),
+                    "Law Enforcement": allFeatures.filter(f => f.attributes.program_function === "Law Enforcement"),
+                    "National Office": allFeatures.filter(f => f.attributes.program_function === "National Office"),
+                    "External Requests": allFeatures.filter(f => f.attributes.program_function === "External Requests"),
+                };
+
+                // === CREATE BUTTONS ===
+                programButtons.forEach(program => {
+                    const btn = document.createElement("button");
+                        btn.textContent = program;
+                        btn.style.margin = "4px";
+                        btn.style.padding = "6px 12px";
+                        btn.style.border = "1px solid #0079c1";
+                        btn.style.background = "#0079c1";
+                        btn.style.color = "white";
+                        btn.style.borderRadius = "4px";
+                        btn.style.cursor = "pointer";
+                        btn.addEventListener("click", () => showTable(program));
+                        btn.addEventListener("mouseover", () => btn.style.background = "#005f9e");
+                        btn.addEventListener("mouseout", () => btn.style.background = "#0079c1");
+                        buttonBar.appendChild(btn);
+                });
+                
+                document.getElementById("add-project-btn").addEventListener("click", () => {
+                    const form = document.getElementById("new-project-form");
+
+                    form.innerHTML = `
+                        <h3>Create New Project</h3>
+                        <label>Title:<br><input id="np-title"></label><br><br>
+
+                        <label>Project Type:<br>
+                            <select id="np-type">
+                                <option value="Map Product">Map Product</option>
+                                <option value="AGOL App">AGOL App</option>
+                                <option value="Field Maps">Field Maps</option>
+                                <option value="Survey123">Survey123</option>
+                                <option value="Portal App">Portal App</option>
+                                <option value="Data Export">Data Export</option>
+                                <option value="Data Sharing Agreement">Data Sharing Agreement</option>
+                                <option value="Data Collection">Data Collection</option>
+                                <option value="Data Management">Data Management</option>
+                                <option value="Python Script">Python Script</option>
+                            </select>
+                        </label><br><br>
+
+                        <label>Priority:<br>
+                            <select id="np-priority">
+                                <option value="Low">Low</option>
+                                <option value="Medium">Medium</option>
+                                <option value="High">High</option>
+                                <option value="Complete">Complete</option>
+                            </select>
+                        </label><br><br>
+
+                        <label>Start Date (DD-MM-YYYY):<br>
+                            <input id="np-start" type="date">
+                        </label><br><br>
+
+                        <label>Due Date (DD-MM-YYYY):<br>
+                            <input id="np-due" type="date">
+                        </label><br><br>
+
+                        <label>Description:<br>
+                            <textarea id="np-desc"></textarea>
+                        </label><br><br>
+
+                        <label>Status:<br>
+                            <select id="np-status">
+                                <option value="Ongoing">Ongoing</option>
+                                <option value="Not Started">Not Started</option>
+                                <option value="Backlogged">Backlogged</option>
+                                <option value="Maintenance">Maintenance</option>
+                                <option value="Complete">Complete</option>
+                                <option value="Annual">Annual</option>
+                            </select>
+                        </label><br><br>
+
+                        <label>Size:<br>
+                            <select id="np-size">
+                                <option value="Small">Small</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Large">Large</option>
+                            </select>
+                        </label><br><br>
+
+                        <label>Folder Path:<br>
+                            <input id="np-folder">
+                        </label><br><br>
+
+                        <label>Progress (%):<br>
+                            <input id="np-progress" type="number" min="0" max="100">
+                        </label><br><br>
+
+                        <label>Program / Function:<br>
+                            <select id="np-program">
+                                <option value="ACS">ACS</option>
+                                <option value="Assets">Assets</option>
+                                <option value="External Relations">External Relations</option>
+                                <option value="Geomatics">Geomatics</option>
+                                <option value="HES">HES</option>
+                                <option value="HOU">HOU</option>
+                                <option value="Law Enforcement">Law Enforcement</option>
+                                <option value="Visitor Experience">Visitor Experience</option>
+                                <option value="ResCon">ResCon</option>
+                                <option value="EI Monitoring">EI Monitoring</option>
+                                <option value="Impact Assessment">Impact Assessment</option>
+                                <option value="Veg">Veg</option>
+                                <option value="Ecosystem Science">Ecosystem Science</option>
+                                <option value="Wildlife">Wildlife</option>
+                                <option value="National Office">National Office</option>
+                                <option value="External Requests">External Requests</option>
+                            </select>
+                        </label><br><br>
+
+                        <button id="np-save"
+                            style="background:#0079c1;color:white;padding:6px 12px;">
+                            Save Project
+                        </button>
+                    `;
+
+                    form.style.display = "block";
+                });
+
+
+                // === CREATE TABLES ===
+                const tables = {};
+                Object.keys(programGroups).forEach(program => {
+                    const table = document.createElement("table");
+                        table.style.width = "100%";
+                        table.style.borderCollapse = "collapse";
+                        table.style.tableLayout = "fixed";
+                        table.style.marginTop = "10px";
+                        table.style.display = "none";
+
+                    // Define sortable fields
+                    const sortableFields = ["priority", "start_date", "due_date", "status", "progress"];
+                    const sortState = {};
+
+                    // === HEADER ROW ===
+                    const headerRow = document.createElement("tr");
+
+                    const arrowHeader = document.createElement("th");
+                    arrowHeader.style.width = "28px";
+                    arrowHeader.style.backgroundColor = "#0079c1";
+                    arrowHeader.style.border = "1px solid #ddd";
+                    headerRow.appendChild(arrowHeader);
+
+                    displayOrder.forEach(label => {
+                        const th = document.createElement("th");
+                        th.textContent = label;
+                        th.style.border = "1px solid #ddd";
+                        th.style.backgroundColor = "#0079c1";
+                        th.style.color = "white";
+                        th.style.padding = "6px";
+                        th.style.width = "120px";
+                        th.style.cursor = sortableFields.includes(fieldMap[label]) ? "pointer" : "default";
+
+                        // Sortable headers
+                        if (sortableFields.includes(fieldMap[label])) {
+                            const sortIcon = document.createElement("span");
+                                sortIcon.textContent = " ⇅";
+                                sortIcon.style.fontSize = "12px";
+                                sortIcon.style.opacity = "0.7";
+                                th.appendChild(sortIcon);
+
+                                th.addEventListener("click", () => {
+                                const fieldName = fieldMap[label];
+                                const currentDirection = sortState[fieldName] === "asc" ? "desc" : "asc";
+                                sortState[fieldName] = currentDirection;
+
+                                programGroups[program].sort((a, b) => {
+                                    let valA = a.attributes[fieldName];
+                                    let valB = b.attributes[fieldName];
+
+                                    if (fieldName.includes("date")) {
+                                        valA = valA ? new Date(valA).getTime() : 0;
+                                        valB = valB ? new Date(valB).getTime() : 0;
+                                    }
+
+                                    if (!isNaN(valA) && !isNaN(valB)) {
+                                        valA = Number(valA);
+                                        valB = Number(valB);
+                                    }
+
+                                    if (valA < valB) return currentDirection === "asc" ? -1 : 1;
+                                    if (valA > valB) return currentDirection === "asc" ? 1 : -1;
+                                    return 0;
+                                });
+
+                                document.querySelectorAll("th span").forEach(s => s.textContent = " ⇅");
+                                sortIcon.textContent = currentDirection === "asc" ? " ▲" : " ▼";
+
+                                rebuildTableRows(table, programGroups[program]);
+                            });
+                        }
+
+                        headerRow.appendChild(th);
+                    });
+                    table.appendChild(headerRow);
+
+                    rebuildTableRows(table, programGroups[program]);
+                    tables[program] = table;
+                    container.appendChild(table);
+                });
+
+                // === SHOW TABLE FUNCTION ===
+                function showTable(program) {
+                    Object.keys(tables).forEach(p => {
+                        tables[p].style.display = "none";
+                    });
+                    tables[program].style.display = "table";
+                }
+
+                showTable("All");
+
+                function convertDatePickerToEpoch(inputValue) {
+                    if (!inputValue || inputValue.trim() === "") return null; 
+                    const [yyyy, mm, dd] = inputValue.split("-");
+                    return new Date(Date.UTC(yyyy, mm - 1, dd)).getTime(); // safer
+                }
+
+                document.addEventListener("click", async (e) => {
+                    if (e.target.id !== "np-save") return;
+
+                    const attrs = {
+                        title: document.getElementById("np-title").value,
+                        priority: document.getElementById("np-priority").value,
+                        start_date: convertDatePickerToEpoch(document.getElementById("np-start").value),
+                        due_date: convertDatePickerToEpoch(document.getElementById("np-due").value),
+                        description: document.getElementById("np-desc").value,
+                        status: document.getElementById("np-status").value,
+                        folder_path: document.getElementById("np-folder").value,
+                        progress: Number(document.getElementById("np-progress").value) || 0,
+                        program_function: document.getElementById("np-program").value
+                    };
+
+                    const newFeature = { attributes: attrs };
+
+                    try {
+                        const result = await projectLayer.applyEdits({ addFeatures: [newFeature] });
+
+                        if (result.addFeatureResults[0].error) {
+                            alert("❌ Error adding project");
+                            console.error(result.addFeatureResults[0].error);
+                            return;
+                        }
+
+                        alert("✅ Project added successfully!");
+
+                        // Reload all features to refresh tables
+                        location.reload();
+
+                    } catch (err) {
+                        console.error(err);
+                        alert("❌ Failed to add project");
+                    }
+                });
+
+            });
+        
+            async function toggleSubtaskRow(table, row, feature) {
+                const arrow = row.querySelector(".arrow-cell");
+                // If subtasks are already shown, remove them
+                if (row.nextSibling && row.nextSibling.classList.contains("subtask-row")) {
+                    row.nextSibling.remove();
+                    arrow.innerHTML = "&#9654;"; // ►
+                    return;
+                    
+                }
+                arrow.innerHTML = "&#9660;"; // ▼
+
+                // --- QUERY RELATED SUBTASKS ---
+                const parentGlobalID = feature.attributes.globalid;
+
+                const result = await subTaskLayer.queryFeatures({
+                    where: `project_ID = '${parentGlobalID}'`,
+                    outFields: ["*"],
+                    returnGeometry: false
+                });
+
+                // --- BUILD SUBTASK EXPANSION ROW ---
+                const subRow = document.createElement("tr");
+                subRow.classList.add("subtask-row");
+
+                const td = document.createElement("td");
+                td.colSpan = displayOrder.length;
+                td.style.background = "#f1f1f1";
+                td.style.padding = "10px";
+
+                let html = `
+                    <div style="margin-bottom:6px; font-weight:bold;">
+                        Subtasks (${result.features.length})
+                    </div>
+                    <table style="width:100%; border-collapse:collapse;">
+                        <tr>
+                            <th style="border:1px solid #ccc; padding:6px;">Title</th>
+                            <th style="border:1px solid #ccc; padding:6px;">Status</th>
+                            <th style="border:1px solid #ccc; padding:6px;">Progress</th>
+                        </tr>
+                `;
+
+                result.features.forEach(sub => {
+                    html += `
+                        <tr>
+                            <td style="border:1px solid #ccc; padding:6px;">${sub.attributes.Title || ""}</td>
+                            <td style="border:1px solid #ccc; padding:6px;">${sub.attributes.Status || ""}</td>
+                            <td style="border:1px solid #ccc; padding:6px;">${sub.attributes.Progress || 0}%</td>
+                        </tr>
+                    `;
+                });
+
+                html += `</table>`;
+                td.innerHTML = html;
+                subRow.appendChild(td);
+
+                // Insert directly underneath project row
+                row.insertAdjacentElement("afterend", subRow);
+            }
         });
-      });
+  </script>
 
-      groupDiv.dataset.height = localTop;
-      globalTop += 30 + localTop + 10;
-
-      // Accordion toggle behavior: show one group at a time
-      header.addEventListener("click", () => {
-
-        const isExpanded = groupDiv.style.display !== "none";
-
-        if (isExpanded) {
-            groupDiv.style.display = "none";
-            header.textContent = `\u25B6 ${groupName}`;
-        } else {
-            groupDiv.style.display = "block";
-            header.textContent = `\u25BC ${groupName}`;
-        }
-
-        // Recalculate global top offsets
-        let runningTop = 0;
-        document.querySelectorAll(".accordion-header").forEach((hdr, i) => {
-          const grp = hdr.textContent.slice(2);
-          const div = hdr.nextElementSibling;
-          hdr.style.top = runningTop + "px";
-          runningTop += 30;
-
-          if (div.style.display !== "none") {
-              div.style.top = runningTop + "px";
-              runningTop += parseInt(div.dataset.height || "0") + 10;
-          }
-        });
-      });
-    });
-  }
-
-  function loadAndRender(viewMode) {
-    const sortByPriority = document.getElementById("sortByPriorityToggle").checked;
-
-    // --- Query both layers ---
-    Promise.all([
-      projectLayer.queryFeatures({
-        where: "1=1",
-        outFields: ["objectid", "title", "start_date", "due_date", "priority", "status", "program_function"],
-        returnGeometry: false
-      }),
-      subtaskLayer.queryFeatures({
-        where: "1=1",
-        outFields: ["objectid", "title", "start_date", "due_date", "progress"], // no priority here
-        returnGeometry: false
-      })
-    ]).then(([projectResult, subtaskResult]) => {
-
-    // --- Map projects ---
-    const projectTasks = projectResult.features.map(f => {
-      const a = f.attributes;
-      return {
-        id: "proj_" + a.objectid,
-        title: a.title || "Untitled Project",
-        start: new Date(a.start_date),
-        end: new Date(a.due_date),
-        priority: (a.priority || "normal").toLowerCase(), // normalize
-        progress: a.progress || "N/A",
-        program: (a.program_function && a.program_function.trim()) || "Uncategorized",
-        type: "project"
-      };
-    });
-
-    // --- Map subtasks (no priority) ---
-      const subTasks = subtaskResult.features.map(f => {
-        const a = f.attributes;
-        return {
-          id: "subTask_" + a.objectid,
-          title: a.title || "Untitled Subtask",
-          start: new Date(a.start_date),
-          end: new Date(a.due_date),
-          priority: "normal", // give subtasks a default so .toLowerCase() never fails
-          status: a.status || "N/A",
-          type: "subtask"
-        };
-      });
-
-      // --- Combine & filter ---
-      const tasks = [...projectTasks, ...subTasks].filter(
-        t => !isNaN(t.start) && !isNaN(t.end)
-      );
-
-      if (tasks.length === 0) {
-        timelineContainer.innerHTML = "<p>No valid tasks to display.</p>";
-        return;
-      }
-
-      // --- Date extent ---
-      let minDate = new Date(Math.min(...tasks.map(t => t.start)));
-      let maxDate = new Date(Math.max(...tasks.map(t => t.end)));
-
-      if (viewMode === "day") {
-        const now = new Date();
-        minDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        maxDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      }
-
-      renderTimeline(tasks, minDate, maxDate, viewMode, sortByPriority);
-    });
-  }
-  viewSwitcher.addEventListener("change", () => loadAndRender(viewSwitcher.value));
-  loadAndRender(viewSwitcher.value);
-  
-});
-
-
-</script>
+  <style>
+    tr:nth-child(even) td { background: #f9f9f9; }
+    td:focus { background-color: #fff3cd; }
+  </style>
 </body>
-</html>
